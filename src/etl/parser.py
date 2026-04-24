@@ -18,7 +18,7 @@ import json
 
 from lxml import etree
 
-from .config import MIN_YEAR, TARGET_TAGS, LOG_PROGRESS_EVERY
+from .config import MIN_YEAR, TARGET_TAGS, LOG_PROGRESS_EVERY, STATS_JSON
 
 log = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ def stream_records(xml_path: Path) -> Generator[Record, None, None]:
     )
 
 
-def get_base_info(xml_path: Path) -> None:
+def get_stats(xml_path: Path) -> None:
     """
     Quick pass to get overall stats about the XML file.
     Counts total number of records and distribution of record types (article, inproceedings, proceedings, book, incollection, phdthesis, mastersthesis, www, person, data).
@@ -237,4 +237,7 @@ def get_base_info(xml_path: Path) -> None:
 
         elem.clear()
 
-    log.info( json.dumps(stats, indent=2))
+    with open(STATS_JSON, "w") as f:
+        json.dump(stats, f, indent=4)
+
+    log.info("Stats saved to %s", STATS_JSON)

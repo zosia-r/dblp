@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .authors import deduplicate_authors
 from .loader import load_into_sqlite
-from .parser import stream_records, get_base_info
+from .parser import stream_records, get_stats
 from .transform import write_raw_csvs
 from .verify import verify
 
@@ -38,8 +38,8 @@ def run() -> None:
     if not xml_path.exists():
         raise FileNotFoundError(f"XML file not found: {xml_path}")
     
-    log.info("=== Phase 0: Get basic information about the dataset")
-    get_base_info(xml_path)
+    log.info("=== Phase 0: Get basic information about the dataset ===")
+    get_stats(xml_path)
 
     # log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
     # write_raw_csvs(stream_records(xml_path))

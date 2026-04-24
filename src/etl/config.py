@@ -23,6 +23,10 @@ INTERIM_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_DIR: Path = DATA_DIR / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
+RESULTS_DIR: Path = Path("results")
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+STATS_JSON = RESULTS_DIR / "stats.json"
+
 PAPERS_CSV        = INTERIM_DIR / "papers.csv"
 AUTHORS_RAW_CSV   = INTERIM_DIR / "authors_raw.csv"
 AUTHORS_CSV       = INTERIM_DIR / "authors.csv"
