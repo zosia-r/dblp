@@ -1,57 +1,10 @@
-"""
-DBLP ETL pipeline — entry point.
-
-Usage:
-    python main.py <path/to/dblp.xml>
-
-Phases:
-    1+2. Stream XML → papers.csv + authors_raw.csv
-    3.   Deduplicate authors → authors.csv + paper_authors.csv
-    4.   Bulk-load CSVs → dblp.db (SQLite)
-    5.   Verify row counts and key invariants
-"""
-
-import logging
-import sys
-from pathlib import Path
-
-from src.etl.authors import deduplicate_authors
-from src.etl.loader import load_into_sqlite
-from src.etl.parser import stream_records
-from src.etl.transform import write_raw_csvs
-from src.etl.verify import verify
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger(__name__)
-
-
-def main() -> None:
-    # if len(sys.argv) < 2:
-    #     print(f"Usage: python {sys.argv[0]} <path/to/dblp.xml>")
-    #     sys.exit(1)
-
-    # xml_path = Path(sys.argv[1])
-    # if not xml_path.exists():
-    #     raise FileNotFoundError(f"XML file not found: {xml_path}")
-
-    # log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
-    # write_raw_csvs(stream_records(xml_path))
-
-    # log.info("=== Phase 3: Deduplicate authors ===")
-    # deduplicate_authors()
-
-    # log.info("=== Phase 4: Load into SQLite ===")
-    # load_into_sqlite()
-
-    log.info("=== Phase 5: Verify ===")
-    verify()
-
-    log.info("Pipeline complete.")
+from src.etl.pipeline import run as run_etl_pipeline
+from src.topics_sklearn.pipeline import run as run_topic_pipeline
 
 
 if __name__ == "__main__":
-    main()
+    # Step 1: Run the ETL pipeline to process the XML and populate the database
+    run_etl_pipeline()
+
+    # Step 2: Run the topic modelling pipeline to generate topics and embeddings
+    # run_topic_pipeline(db_path="data/processed/dblp.db", n_clusters=8)
