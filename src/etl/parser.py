@@ -14,6 +14,7 @@ Qualifying criteria (all must hold):
 import logging
 from pathlib import Path
 from typing import Generator
+import json
 
 from lxml import etree
 
@@ -91,6 +92,7 @@ def stream_records(xml_path: Path) -> Generator[Record, None, None]:
         if parent is None or parent.tag != "dblp":
             continue
 
+        
         if elem.tag not in TARGET_TAGS:
             elem.clear()
             continue
@@ -161,3 +163,78 @@ def stream_records(xml_path: Path) -> Generator[Record, None, None]:
         stats["skipped_year"],
         stats["skipped_fields"],
     )
+
+
+def get_base_info(xml_path: Path) -> None:
+    """
+    Quick pass to get overall stats about the XML file.
+    Counts total number of records and distribution of record types (article, inproceedings, proceedings, book, incollection, phdthesis, mastersthesis, www, person, data).
+    Checks which fields appear consistently and which are often missing.
+    """
+
+    details = {
+        "count": 0,
+        "author": 0,
+        "editor": 0,
+        "title": 0,
+        "booktitle": 0,
+        "pages": 0,
+        "year": 0,
+        "address": 0,
+        "journal": 0,
+        "volume": 0,
+        "number": 0,
+        "month": 0,
+        "url": 0,
+        "ee": 0,
+        "cdrom": 0,
+        "cite": 0,
+        "publisher": 0,
+        "note": 0,
+        "crossref": 0,
+        "isbn": 0,
+        "series": 0,
+        "school": 0,
+        "chapter": 0,
+        "publnr": 0,
+        "stream": 0,
+        "rel": 0,
+    }
+
+    stats = {
+        "total": 0,
+        "article": details.copy(),
+        "inproceedings": details.copy(),
+        "proceedings": details.copy(),
+        "book": details.copy(),
+        "incollection": details.copy(),
+        "phdthesis": details.copy(),
+        "mastersthesis": details.copy(),
+        "www": details.copy(),
+        "person": details.copy(),
+        "data": details.copy()
+    }
+
+    context = etree.iterparse(
+        str(xml_path),
+        events=("end",),
+        load_dtd=True,
+        no_network=True,
+        recover=True,
+    )
+
+    for _event, elem in context:
+        parent = elem.getparent()
+        if parent is None or parent.tag != "dblp":
+            continue
+
+        stats["total"] += 1
+
+        for field in details.keys():
+            if elem.find(field) is not None:
+                stats[elem.tag][field] += 1
+
+
+        elem.clear()
+
+    log.info( json.dumps(stats, indent=2))
