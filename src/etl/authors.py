@@ -1,71 +1,82 @@
 """
-Phase 3 — Author deduplication.
+Phase 3 — Author resolution.
 
-Reads authors_raw.csv (all mentions, with duplicates) and produces:
-  - authors.csv       (deduplicated registry, one row per unique normalized_name)
-  - paper_authors.csv (many-to-many join table with stable author_id)
+Reads:
+  - authors_raw.csv     (name mentions from papers)
+  - authors.csv         (primary names from <www> homepages)
+  - author_aliases.csv  (aliases from <www> homepages)
 
-Deduplication key: normalized_name.
-raw_name policy: first occurrence wins.
+Produces:
+  - paper_authors.csv   (paper_id, author_id, author_order)
 """
 
 import csv
 import logging
-from pathlib import Path
 
-from .config import AUTHORS_CSV, AUTHORS_RAW_CSV, PAPER_AUTHORS_CSV
+from .config import AUTHOR_ALIASES_CSV, AUTHORS_CSV, AUTHORS_RAW_CSV, PAPER_AUTHORS_CSV
 
 log = logging.getLogger(__name__)
 
-Registry = dict[str, tuple[int, str]]       # normalized_name -> (author_id, canonical_raw_name)
 
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def deduplicate_authors() -> int:
+def resolve_authors() -> int:
     """
-    Two-pass deduplication over authors_raw.csv.
-
-    Pass 1: build Registry (normalized_name -> (author_id, canonical_raw_name)).
-    Pass 2: resolve every mention to its author_id and write paper_authors.csv.
-
-    Returns the number of distinct authors found.
+    Build paper_authors.csv by resolving each name mention to an author_id.
+    Returns total number of distinct authors.
     """
-    registry: Registry = {}
-    rows: list[tuple[str, int, str]] = []   # (paper_id, author_order, normalized_name)
-    next_id = 1
 
-    # --- Pass 1: build registry ---
-    with open(AUTHORS_RAW_CSV, newline="", encoding="utf-8") as f:
+    # --- Load identity registry: name -> author_id ---
+    name_to_id: dict[str, int] = {}
+
+    with open(AUTHORS_CSV, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            norm = row["normalized_name"]
-            raw  = row["raw_name"]
-            if norm not in registry:
-                registry[norm] = (next_id, raw)   # first-seen raw_name is canonical
-                next_id += 1
-            rows.append((row["paper_id"], int(row["author_order"]), norm))
+            name_to_id[row["primary_name"]] = int(row["id"])
 
-    # --- Write authors.csv ---
-    with open(AUTHORS_CSV, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["id", "raw_name", "normalized_name"])
-        # Write in ID order (first-seen order)
-        for norm, (aid, raw) in sorted(registry.items(), key=lambda x: x[1][0]):
-            w.writerow([aid, raw, norm])
+    with open(AUTHOR_ALIASES_CSV, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            alias     = row["alias"]
+            author_id = int(row["author_id"])
+            if alias not in name_to_id:
+                name_to_id[alias] = author_id
 
-    # --- Pass 2: write paper_authors.csv ---
-    with open(PAPER_AUTHORS_CSV, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["paper_id", "author_id", "author_order"])
-        for paper_id, order, norm in rows:
-            author_id = registry[norm][0]
-            w.writerow([paper_id, author_id, order])
+    log.info("Identity registry loaded | %d names (primary + aliases)", len(name_to_id))
 
-    distinct = len(registry)
+    # --- Resolve mentions -> paper_authors.csv ---
+    seen: set[tuple[str, int]] = set()   # (paper_id, author_id) already written
+    total        = 0
+    duplicate_count    = 0
+    unresolved = 0
+
+    with (
+        open(AUTHORS_RAW_CSV,   newline="", encoding="utf-8") as inf,
+        open(PAPER_AUTHORS_CSV, "w",        newline="", encoding="utf-8") as outf,
+    ):
+        reader = csv.DictReader(inf)
+        writer = csv.writer(outf)
+        writer.writerow(["paper_id", "author_id", "author_order"])
+
+        for row in reader:
+            name     = row["name"]
+            paper_id = row["paper_id"]
+            order    = int(row["author_order"])
+
+            if name not in name_to_id:
+                log.warning("Unresolved author %r in paper %s — skipping", name, paper_id)
+                unresolved += 1
+                continue
+
+            author_id = name_to_id[name]
+
+            key = (paper_id, author_id)
+            if key in seen:
+                duplicate_count += 1
+                continue
+            seen.add(key)
+
+            writer.writerow([paper_id, author_id, order])
+            total += 1
+
     log.info(
-        "Deduplication done | distinct authors: %d | total mentions: %d",
-        distinct, len(rows),
+        "Resolution done | rows written: %d | duplicates dropped: %d | unresolved: %d",
+        total, duplicate_count, unresolved
     )
-    return distinct
+    return total

@@ -9,7 +9,8 @@ from pathlib import Path
 # Filter settings
 # ---------------------------------------------------------------------------
 
-MIN_YEAR: int = 2011
+MIN_YEAR: int = 2010
+MAX_YEAR: int = 2025
 TARGET_TAGS: frozenset[str] = frozenset({"article", "inproceedings"})
 
 # ---------------------------------------------------------------------------
@@ -17,6 +18,7 @@ TARGET_TAGS: frozenset[str] = frozenset({"article", "inproceedings"})
 # ---------------------------------------------------------------------------
 
 DATA_DIR: Path = Path("data")
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 INTERIM_DIR: Path = DATA_DIR / "interim"
 INTERIM_DIR.mkdir(parents=True, exist_ok=True)
@@ -30,6 +32,7 @@ STATS_JSON = RESULTS_DIR / "stats.json"
 PAPERS_CSV        = INTERIM_DIR / "papers.csv"
 AUTHORS_RAW_CSV   = INTERIM_DIR / "authors_raw.csv"
 AUTHORS_CSV       = INTERIM_DIR / "authors.csv"
+AUTHOR_ALIASES_CSV = INTERIM_DIR / "author_aliases.csv"
 PAPER_AUTHORS_CSV = INTERIM_DIR / "paper_authors.csv"
 
 DB_PATH = PROCESSED_DIR / "dblp.db"

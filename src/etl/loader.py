@@ -1,26 +1,24 @@
 """
 Phase 4 — SQLite loader.
 
-Bulk-loads the three CSV files into a normalized SQLite database.
-Load order respects foreign key dependencies:
-    papers -> authors -> paper_authors
+Loads CSV files into SQLite in this order (respects FK dependencies):
+    papers -> authors -> author_aliases -> paper_authors
 
-Design decisions:
-  - INSERT OR IGNORE: makes reruns idempotent
-  - Indexes created AFTER bulk load for faster inserts
-  - PRAGMA WAL: faster writes, allows concurrent reads
-  - PRAGMA foreign_keys: enforce referential integrity
-  - PRAGMA synchronous=NORMAL: faster writes
-  - executemany in batches of BATCH_SIZE for memory efficiency
+Schema:
+  papers          (id, title, year, venue, type)
+  authors         (id INTEGER PK, primary_name TEXT UNIQUE)
+  author_aliases  (author_id FK, alias TEXT)
+  paper_authors   (paper_id FK, author_id FK, author_order)
 """
 
 import csv
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Generator, Iterable
+from typing import Iterable, Generator
 
 from .config import (
+    AUTHOR_ALIASES_CSV,
     AUTHORS_CSV,
     BATCH_SIZE,
     DB_PATH,
@@ -31,64 +29,64 @@ from .config import (
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# SQL
-# ---------------------------------------------------------------------------
-
 _SQL_SCHEMA = """
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS papers
-(
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    year INTEGER NOT NULL,
+CREATE TABLE papers (
+    id    TEXT    PRIMARY KEY,
+    title TEXT    NOT NULL,
+    year  INTEGER NOT NULL,
     venue TEXT,
-    type TEXT NOT NULL
+    type  TEXT    NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS authors (
-    id INTEGER PRIMARY KEY,
-    raw_name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL UNIQUE
+CREATE TABLE authors (
+    id           INTEGER PRIMARY KEY,
+    primary_name TEXT    NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS paper_authors (
-    paper_id TEXT NOT NULL REFERENCES papers(id),
-    author_id INTEGER NOT NULL REFERENCES authors(id),
-    author_order INTEGER,
-    UNIQUE (paper_id, author_id)
+CREATE TABLE author_aliases (
+    author_id  INTEGER NOT NULL REFERENCES authors(id),
+    alias      TEXT    NOT NULL
+);
+
+CREATE TABLE paper_authors (
+    paper_id     TEXT    NOT NULL,
+    author_id    INTEGER NOT NULL,
+    author_order INTEGER
 );
 """
 
-_SQL_INDEXES = """
-CREATE INDEX IF NOT EXISTS idx_papers_year ON papers(year);
-CREATE INDEX IF NOT EXISTS idx_papers_type ON papers(type);
-CREATE INDEX IF NOT EXISTS idx_papers_venue ON papers(venue);
-CREATE INDEX IF NOT EXISTS idx_pa_paper ON paper_authors(paper_id);
-CREATE INDEX IF NOT EXISTS idx_pa_author ON paper_authors(author_id);
+_SQL_BULK_MODE = """
+PRAGMA journal_mode = MEMORY;
+PRAGMA synchronous = OFF;
+PRAGMA foreign_keys = OFF;
+PRAGMA cache_size = -131072;
 """
 
+_SQL_POST_LOAD = """
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+PRAGMA synchronous = NORMAL;
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+CREATE UNIQUE INDEX IF NOT EXISTS uq_authors_name ON authors(primary_name);
+CREATE        INDEX IF NOT EXISTS idx_aliases_aid  ON author_aliases(author_id);
+CREATE        INDEX IF NOT EXISTS idx_aliases_name ON author_aliases(alias);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pa            ON paper_authors(paper_id, author_id);
+CREATE        INDEX IF NOT EXISTS idx_papers_year  ON papers(year);
+CREATE        INDEX IF NOT EXISTS idx_papers_type  ON papers(type);
+CREATE        INDEX IF NOT EXISTS idx_papers_venue ON papers(venue);
+CREATE        INDEX IF NOT EXISTS idx_pa_paper     ON paper_authors(paper_id);
+CREATE        INDEX IF NOT EXISTS idx_pa_author    ON paper_authors(author_id);
+"""
+
 
 def _csv_rows(path: Path) -> Generator[list[str], None, None]:
-    """Yield rows from a CSV."""
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
-        next(reader)    # skip header
+        next(reader)
         yield from reader
 
 
 def _batch_insert(con: sqlite3.Connection, sql: str, rows: Iterable, label: str) -> int:
-    """
-    Insert rows in batches inside a single transaction.
-    Returns total number of rows processed.
-    """
     total = 0
     buf: list = []
     with con:
@@ -98,54 +96,53 @@ def _batch_insert(con: sqlite3.Connection, sql: str, rows: Iterable, label: str)
                 con.executemany(sql, buf)
                 total += len(buf)
                 buf.clear()
-                log.info("  %s: %d rows so far...", label, total)
+                if total % 1_000_000 == 0:
+                    log.info("  %s: %d rows so far...", label, total)
         if buf:
             con.executemany(sql, buf)
             total += len(buf)
-
     return total
 
-
-# ---------------------------------------------------------------------------
-# Row iterators
-# ---------------------------------------------------------------------------
 
 def _papers_rows():
     for paper_id, title, year, venue, rec_type in _csv_rows(PAPERS_CSV):
         yield (paper_id, title, int(year), venue or None, rec_type)
 
-
 def _authors_rows():
-    for aid, raw, norm in _csv_rows(AUTHORS_CSV):
-        yield (int(aid), raw, norm)
+    for author_id, primary_name in _csv_rows(AUTHORS_CSV):
+        yield (int(author_id), primary_name)
 
+def _aliases_rows():
+    for author_id, alias in _csv_rows(AUTHOR_ALIASES_CSV):
+        yield (int(author_id), alias)
 
 def _paper_authors_rows():
     for paper_id, author_id, order in _csv_rows(PAPER_AUTHORS_CSV):
         yield (paper_id, int(author_id), int(order))
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def load_into_sqlite() -> None:
-    """Create schema, bulk-load all tables, then build indexes."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+        log.info("Removed existing database: %s", DB_PATH)
 
     con = sqlite3.connect(DB_PATH)
+    con.executescript(_SQL_BULK_MODE)
     con.executescript(_SQL_SCHEMA)
 
-    n = _batch_insert(con, "INSERT OR IGNORE INTO papers VALUES (?,?,?,?,?)", _papers_rows(), "papers")
-    log.info("Loaded papers:        %d rows", n)
+    n = _batch_insert(con, "INSERT INTO papers VALUES (?,?,?,?,?)", _papers_rows(), "papers")
+    log.info("Loaded papers:         %d rows", n)
 
-    n = _batch_insert(con, "INSERT OR IGNORE INTO authors VALUES (?,?,?)", _authors_rows(), "authors")
-    log.info("Loaded authors:       %d rows", n)
+    n = _batch_insert(con, "INSERT INTO authors VALUES (?,?)", _authors_rows(), "authors")
+    log.info("Loaded authors:        %d rows", n)
 
-    n = _batch_insert(con, "INSERT OR IGNORE INTO paper_authors VALUES (?,?,?)", _paper_authors_rows(), "paper_authors")
-    log.info("Loaded paper_authors: %d rows", n)
+    n = _batch_insert(con, "INSERT INTO author_aliases VALUES (?,?)", _aliases_rows(), "author_aliases")
+    log.info("Loaded author_aliases: %d rows", n)
 
-    con.executescript(_SQL_INDEXES)
-    log.info("Indexes created")
+    n = _batch_insert(con, "INSERT INTO paper_authors VALUES (?,?,?)", _paper_authors_rows(), "paper_authors")
+    log.info("Loaded paper_authors:  %d rows", n)
 
+    log.info("Building indexes and constraints...")
+    con.executescript(_SQL_POST_LOAD)
+    log.info("Done.")
     con.close()

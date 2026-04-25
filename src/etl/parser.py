@@ -1,14 +1,19 @@
 """
+Phase 0 — XML stats.
+
 Phase 1 — XML streaming parser.
-
-Streams the DBLP XML file using lxml iterparse,
-emits one dict per qualifying record.
-
-Qualifying criteria (all must hold):
-  - tag is in TARGET_TAGS
-  - year >= MIN_YEAR
-  - title is non-empty
-  - at least one non-empty author
+ 
+Emits two types of records:
+ 
+  1. Paper records  (tag: article | inproceedings)
+     {"type": "paper", "key", "title", "year", "venue", "record_type", "authors"}
+ 
+  2. Author identity records  (tag: www key="homepages/...")
+     {"type": "author", "primary_name", "aliases"}
+ 
+     First <author> = primary name, remaining = aliases.
+ 
+Paper qualifying criteria: year >= MIN_YEAR, non-empty title, >= 1 author.
 """
 
 import logging
@@ -18,7 +23,11 @@ import json
 
 from lxml import etree
 
-from .config import MIN_YEAR, TARGET_TAGS, LOG_PROGRESS_EVERY, STATS_JSON
+from .config import (
+    MIN_YEAR, MAX_YEAR, 
+    TARGET_TAGS, LOG_PROGRESS_EVERY, 
+    STATS_JSON
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,28 +64,90 @@ def _parse_year(text: str) -> int | None:
     except (ValueError, AttributeError):
         return None
 
+def _parse_www(elem) -> Record | None:
+    """
+    Parse <www> record with key="homepages/...".
+    These records contain author identity information:
+        - primary name (first <author>)
+        - aliases (remaining <author> tags)
+   """
+    if not elem.get("key", "").startswith("homepages/"):
+        return None
+    names = [_itertext(a) for a in elem.findall("author")]
+    names = [n for n in names if n]
+    if not names:
+        return None
+    return {
+        "type":         "author",
+        "primary_name": names[0],
+        "aliases":      names[1:],
+    }
+ 
+ 
+def _parse_paper(elem, stats: dict) -> Record | None:
+    """
+    Parse paper record.
+    Returns None if record is malformed or doesn't meet criteria.
+    Updates stats dict with counts of seen/skipped/accepted records.
+    """
+    stats["seen"] += 1
 
+    key = elem.get("key", "").strip()
+    if not key:
+        stats["skipped_fields"] += 1
+        return None
+ 
+    year_el = elem.find("year")
+    year    = _parse_year(year_el.text if year_el is not None else "")
+    if year is None or year < MIN_YEAR or year > MAX_YEAR:
+        stats["skipped_year"] += 1
+        return None
+ 
+    title_el = elem.find("title")
+    title    = _itertext(title_el) if title_el is not None else ""
+    if not title:
+        stats["skipped_fields"] += 1
+        return None
+ 
+    authors = [_itertext(a) for a in elem.findall("author")]
+    authors = [a for a in authors if a]
+    if not authors:
+        stats["skipped_fields"] += 1
+        return None
+ 
+    venue_tag = "journal" if elem.tag == "article" else "booktitle"
+    venue_el  = elem.find(venue_tag)
+    venue     = (venue_el.text or "").strip() if venue_el is not None else ""
+ 
+    stats["accepted"] += 1
+    if stats["accepted"] % LOG_PROGRESS_EVERY == 0:
+        log.info("  parsing: %d accepted, %d seen so far...", stats["accepted"], stats["seen"])
+ 
+    return {
+        "type":        "paper",
+        "key":         key,
+        "title":       title,
+        "year":        year,
+        "venue":       venue,
+        "record_type": elem.tag,
+        "authors":     authors,
+    }
+ 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def stream_records(xml_path: Path) -> Generator[Record, None, None]:
     """
-    Yield one Record dict per qualifying DBLP entry.
-
-    Uses lxml iterparse with:
-      - load_dtd=True   -> resolves DBLP HTML entities (&uuml;, &eacute; ...)
-      - no_network=True -> DTD must sit next to dblp.xml
-      - recover=True    -> tolerate minor XML malformations
-
-    Each top-level record element is cleared after processing.
-    Method elem.clear() is called ONLY on direct children of <dblp>.
+    Stream records from the XML file, yielding one at a time.
+    Yields either paper records or author identity records.
     """
     stats = {
         "seen":           0,
         "accepted":       0,
         "skipped_year":   0,
         "skipped_fields": 0,
+        "authors_seen": 0,
     }
 
     context = etree.iterparse(
@@ -92,76 +163,25 @@ def stream_records(xml_path: Path) -> Generator[Record, None, None]:
         if parent is None or parent.tag != "dblp":
             continue
 
+        if elem.tag == "www":
+            record = _parse_www(elem)
+            if record is not None:
+                stats["authors_seen"] += 1
+                yield record
         
-        if elem.tag not in TARGET_TAGS:
-            elem.clear()
-            continue
-
-        stats["seen"] += 1
-
-        # --- year: cheapest filter first ---
-        year_el = elem.find("year")
-        year    = _parse_year(year_el.text if year_el is not None else "")
-        if year is None or year < MIN_YEAR:
-            stats["skipped_year"] += 1
-            elem.clear()
-            continue
-
-        # --- title ---
-        title_el = elem.find("title")
-        title    = _itertext(title_el) if title_el is not None else ""
-        if not title:
-            stats["skipped_fields"] += 1
-            elem.clear()
-            continue
-
-        # --- authors ---
-        authors = [_itertext(a) for a in elem.findall("author")]
-        authors = [a for a in authors if a]
-        if not authors:
-            stats["skipped_fields"] += 1
-            elem.clear()
-            continue
-
-        # --- venue ---
-        venue_tag = "journal" if elem.tag == "article" else "booktitle"
-        venue_el  = elem.find(venue_tag)
-        venue     = (venue_el.text or "").strip() if venue_el is not None else ""
-
-        # --- key ---
-        key = elem.get("key", "").strip()
-        if not key:
-            elem.clear()
-            continue
-
-        stats["accepted"] += 1
-
-        if stats["accepted"] % LOG_PROGRESS_EVERY == 0:
-            log.info(
-                "  parsing: %d accepted, %d seen so far...",
-                stats["accepted"],
-                stats["seen"],
-            )
-
-        yield {
-            "key":     key,
-            "title":   title,
-            "year":    year,
-            "venue":   venue,
-            "type":    elem.tag,
-            "authors": authors,
-        }
-
+        elif elem.tag in TARGET_TAGS:
+            record = _parse_paper(elem, stats)
+            if record is not None:
+                yield record
+        
+        
         elem.clear()
 
     log.info(
-        "XML parse done | seen: %d | accepted: %d | "
-        "skipped (year < %d or missing): %d | skipped (missing fields): %d",
-        stats["seen"],
-        stats["accepted"],
-        MIN_YEAR,
-        stats["skipped_year"],
-        stats["skipped_fields"],
+        "XML parse done | papers seen: %d | accepted: %d | "
+        "skipped (year): %d | skipped (fields): %d | author identities: %d",
+        stats["seen"], stats["accepted"],
+        stats["skipped_year"], stats["skipped_fields"], stats["authors_seen"],
     )
 
 
@@ -229,6 +249,7 @@ def get_stats(xml_path: Path) -> None:
             continue
 
         stats["total"] += 1
+        stats[elem.tag]["count"] += 1
 
         for field in details.keys():
             if elem.find(field) is not None:
