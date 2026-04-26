@@ -11,6 +11,7 @@ import sys
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import random
 
 
 COMPRESSION = "zstd"
@@ -23,6 +24,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+
+random.seed(42)  # for reproducibility
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -68,9 +71,10 @@ def sample_paper_ids(con: sqlite3.Connection, fraction: float) -> list[str]:
         ids = [
             r["id"]
             for r in con.execute(
-                "SELECT id FROM papers WHERE year = ? ORDER BY RANDOM()", (year,)
+                "SELECT id FROM papers WHERE year = ?", (year,)
             )
         ]
+        random.shuffle(ids)  # in-place shuffle
         n = max(1, round(len(ids) * fraction))
         sampled.extend(ids[:n])
 
@@ -81,7 +85,7 @@ def sample_paper_ids(con: sqlite3.Connection, fraction: float) -> list[str]:
 # main
 # ---------------------------------------------------------------------------
 
-def run(db_path: str, fraction: float, output_dir: Path) -> None:
+def run(db_path: str, fraction: float, only_topics: bool, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     con = connect(db_path)
 
@@ -93,62 +97,64 @@ def run(db_path: str, fraction: float, output_dir: Path) -> None:
     log.info("Sampling papers…")
     paper_ids = sample_paper_ids(con, fraction)
     log.info(f"  Selected {len(paper_ids):,} papers total")
-
     load_temp_table(con, "_paper_ids", "id", "TEXT", paper_ids)
 
-    papers_rows = con.execute("""
-        SELECT p.* FROM papers p
-        JOIN _paper_ids t ON p.id = t.id
-        ORDER BY p.year, p.id
-    """).fetchall()
-    write_parquet(output_dir / "papers.parquet", papers_rows)
+    if not only_topics:
 
-    # 2. paper_authors — tylko dla wybranych papers ---------------------------
-    log.info("Filtering paper_authors…")
-    pa_rows = con.execute("""
-        SELECT pa.* FROM paper_authors pa
-        JOIN _paper_ids t ON pa.paper_id = t.id
-        ORDER BY pa.paper_id, pa.author_order
-    """).fetchall()
-    write_parquet(output_dir / "paper_authors.parquet", pa_rows)
-
-    # 3. authors — tylko ci, którzy wystąpili w wybranych papers --------------
-    log.info("Filtering authors…")
-    author_ids = list({r["author_id"] for r in pa_rows})
-    load_temp_table(con, "_author_ids", "id", "INTEGER", author_ids)
-
-    authors_rows = con.execute("""
-        SELECT a.* FROM authors a
-        JOIN _author_ids t ON a.id = t.id
-        ORDER BY a.id
-    """).fetchall()
-    write_parquet(output_dir / "authors.parquet", authors_rows)
-
-    # 4. author_aliases -------------------------------------------------------
-    log.info("Filtering author_aliases…")
-    aliases_rows = con.execute("""
-        SELECT aa.* FROM author_aliases aa
-        JOIN _author_ids t ON aa.author_id = t.id
-        ORDER BY aa.author_id
-    """).fetchall()
-    write_parquet(output_dir / "author_aliases.parquet", aliases_rows)
-
-    # 5. topics — tylko te, do których odwołują się wybrane papers ------------
-    log.info("Filtering topics…")
-    has_topics = con.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='topics'"
-    ).fetchone()
-
-    if has_topics:
-        topics_rows = con.execute("""
-            SELECT DISTINCT t.* FROM topics t
-            JOIN papers p ON p.topic_id = t.id
-            JOIN _paper_ids s ON p.id = s.id
-            ORDER BY t.id
+        papers_rows = con.execute("""
+            SELECT p.* FROM papers p
+            JOIN _paper_ids t ON p.id = t.id
+            ORDER BY p.year, p.id
         """).fetchall()
-        write_parquet(output_dir / "topics.parquet", topics_rows)
+        write_parquet(output_dir / "papers.parquet", papers_rows)
+
+        # 2. paper_authors — tylko dla wybranych papers ---------------------------
+        log.info("Filtering paper_authors…")
+        pa_rows = con.execute("""
+            SELECT pa.* FROM paper_authors pa
+            JOIN _paper_ids t ON pa.paper_id = t.id
+            ORDER BY pa.paper_id, pa.author_order
+        """).fetchall()
+        write_parquet(output_dir / "paper_authors.parquet", pa_rows)
+
+        # 3. authors — tylko ci, którzy wystąpili w wybranych papers --------------
+        log.info("Filtering authors…")
+        author_ids = list({r["author_id"] for r in pa_rows})
+        load_temp_table(con, "_author_ids", "id", "INTEGER", author_ids)
+
+        authors_rows = con.execute("""
+            SELECT a.* FROM authors a
+            JOIN _author_ids t ON a.id = t.id
+            ORDER BY a.id
+        """).fetchall()
+        write_parquet(output_dir / "authors.parquet", authors_rows)
+
+        # 4. author_aliases -------------------------------------------------------
+        log.info("Filtering author_aliases…")
+        aliases_rows = con.execute("""
+            SELECT aa.* FROM author_aliases aa
+            JOIN _author_ids t ON aa.author_id = t.id
+            ORDER BY aa.author_id
+        """).fetchall()
+        write_parquet(output_dir / "author_aliases.parquet", aliases_rows)
+
+        # 5. topics — tylko te, do których odwołują się wybrane papers ------------
     else:
-        log.warning("  [skip] topics — table not found in database.")
+        log.info("Filtering topics…")
+        has_topics = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='topics'"
+        ).fetchone()
+
+        if has_topics:
+            topics_rows = con.execute("""
+                SELECT DISTINCT t.* FROM topics t
+                JOIN papers p ON p.topic_id = t.id
+                JOIN _paper_ids s ON p.id = s.id
+                ORDER BY t.id
+            """).fetchall()
+            write_parquet(output_dir / "topics.parquet", topics_rows)
+        else:
+            log.warning("  [skip] topics — table not found in database.")
 
     # summary -----------------------------------------------------------------
     total_mb = sum(
@@ -166,6 +172,8 @@ if __name__ == "__main__":
     parser.add_argument("--db",       default="data/processed/dblp.db",   help="Path to SQLite DB")
     parser.add_argument("--fraction", default=0.10, type=float, help="Sampling fraction (default: 0.10)")
     parser.add_argument("--out",      default="sample_data", help="Output directory for Parquet files")
+    parser.add_argument("--seed",     default=42, type=int, help="Random seed for reproducibility")
+    parser.add_argument("--topics",   action="store_true", default=False, help="Create topics parquet (if exists)")
     args = parser.parse_args()
 
-    run(args.db, args.fraction, Path(args.out))
+    run(args.db, args.fraction, args.topics, Path(args.out))
