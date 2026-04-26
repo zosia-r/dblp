@@ -1,7 +1,7 @@
 import streamlit as st
 
 
-st.title("⚙️ ETL Pipeline Overview")
+st.title("⚙️ ETL - Extract, Transform, Load")
 
 # --- Helpers ---
 @st.cache_data
@@ -20,6 +20,32 @@ def build_er_diagram():
         authors -> author_aliases;
     }
     """
+
+st.set_page_config(page_title="ETL",
+                   page_icon="⚙️",
+                    layout="wide")
+
+st.markdown("""
+This page describes the ETL pipeline implemented to process the raw DBLP XML dataset
+             and load it into a structured SQLite database for analysis.
+""")
+
+with st.expander("Pipeline Description", expanded=False):
+
+    st.markdown("""
+    ### Model pipeline (ETL system)
+
+    | Phase | Component | Description |
+    |------|----------|-------------|
+    | **Phase 0** | Dataset profiling | Basic statistics, schema inspection, row counts |
+    | **Phase 1** | XML streaming (`lxml`) | Incremental parsing of large DBLP XML dump |
+    | **Phase 2** | Interim storage | CSV files for intermediate representation |
+    | **Phase 3** | Author resolution | Author identity matching and paper assignment |
+    | **Phase 4** | SQLite loading | Insert into `dblp.db` |
+    | **Phase 5** | Validation | Row counts +  integrity checks |
+
+    Each phase is implemented as a standalone script with clear inputs/outputs, allowing for modular execution and easy debugging.
+    """)
 
 st.divider()
 
@@ -88,18 +114,6 @@ Records with missing core fields were excluded to maintain data quality.
 - **author_id** (unique identifier)
 - **primary_name** (most frequent name variant)
 - **alias** (all observed name variants)
-            
----
-
-## Pipeline Overview
-
-This project follows a simple and modular ETL pipeline:
-    Phase 0:   Get basic information about the dataset
-    Phase 1:   Stream XML (lxml)
-    Phase 2:   Generate interim CSV files
-    Phase 3:   Resolve author identities
-    Phase 4:   Load CSVs into dblp.db (SQLite)
-    Phase 5:   Verify row counts and key invariants
 
 ---
             
