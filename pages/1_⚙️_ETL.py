@@ -1,66 +1,79 @@
 import streamlit as st
-import pandas as pd
 
-st.title("📊 EDA")
+
+st.title("⚙️ ETL Pipeline Overview")
+
+# --- Helpers ---
+@st.cache_data
+def build_er_diagram():
+    return """
+    digraph ER {
+        rankdir=LR;
+
+        papers [shape=box];
+        authors [shape=box];
+        author_aliases [shape=box];
+        paper_authors [shape=box];
+
+        papers -> paper_authors;
+        authors -> paper_authors;
+        authors -> author_aliases;
+    }
+    """
+
+st.divider()
 
 
 st.markdown("""
-# DBLP Data Analysis Dashboard
+## Data Distribution
+            
+An initial scan of the **DBLP - Computer Science Bibliography dataset** showed the following distribution of record types:
 
-## Overview
-
-This dashboard presents an analysis of the DBLP dataset — a large collection of computer science publications.
-
-Because the full dataset is very large, a curated subset was selected to ensure efficient processing and consistent structure.
-
-The goal of this project is not only to analyze the data, but also to design a clear and scalable data pipeline.
-
+###### Total records: 12501682
+            
+- **Article:** 4249812
+- **Inproceeding:** 3860628
+- **Proceeding:** 63924
+- **Book:** 21374
+- **Incollection:** 71063
+- **Phdthesis:** 152212
+- **Mastersthesis:** 27
+- **Www:** 4059905
+- **Person:** 0
+- **Data:** 22737   
+            
 ---
 
 ## Data Selection
             
-An initial scan of the DBLP dataset showed the following distribution of record types:
-
-| Element | Count |
-|--------|------|
-| Total papers | 12501682 |
-| Article | 4249812 |
-| Inproceeding | 3860628 |
-| Proceeding | 63924 |
-| Book | 21374 |
-| Incollection | 71063 |
-| Phdthesis | 152212 |
-| Mastersthesis | 27 |
-| Www | 4059905 |
-| Person | 0 |
-| Data | 22737 |   
-            
-Based on this distribution, the analysis focuses on two main types of publications:
-
-- **article** (journal papers)
-- **inproceedings** (conference papers)
+Considering this distribution, I decided the analysis should focus on two main types of publications:
+- **article** - An article from a journal or magazine - 34% of records
+- **inproceedings** - A paper in a conference or workshop proceedings - 31% of records
             
 These types were selected because:
 
-- they represent the majority of structured records  
+- they represent the majority of records  
 - they share a consistent schema  
 - they are the most relevant for analyzing research trends in computer science  
             
-Other record types (such as books, theses, or web entries) were excluded due to lower consistency and limited analytical value.
+Other record types were excluded due to lower consistency and limited analytical value.
+            
+In addition, I decieded to focus only on records from years **2010-2025**, as they represent the most recent and relevant data for trend analysis.
 
+---
 
-In addition, `<www>` records were used to improve author-level analysis. These records make it possible to:
-
+## Author Data
+            
+In addition, the `<www>` records were used to conduct author-level analysis. These records make it possible to:
+- extract author names and their variants (aliases)
 - build links between authors and publications  
-- analyze collaboration networks  
-- group different name variants under the same author  
 - better distinguish between authors with similar names  
 
 ---
 
 ## Extracted Fields
 
-For each publication (article or inproceedings), the following fields were extracted:
+For each **publication** (article or inproceeding), the following fields were extracted:
 
 - **paper_id** (unique identifier)
 - **title**
@@ -70,53 +83,58 @@ For each publication (article or inproceedings), the following fields were extra
             
 Records with missing core fields were excluded to maintain data quality.
 
-Author data is stored as:
+**Author** data is stored as:
 
-- **author_id**
+- **author_id** (unique identifier)
 - **primary_name** (most frequent name variant)
 - **alias** (all observed name variants)
-
-This approach allows basic author grouping without using complex disambiguation methods.
-
+            
 ---
 
-## Dataset Summary
+## Pipeline Overview
+
+This project follows a simple and modular ETL pipeline:
+    Phase 0:   Get basic information about the dataset
+    Phase 1:   Stream XML (lxml)
+    Phase 2:   Generate interim CSV files
+    Phase 3:   Resolve author identities
+    Phase 4:   Load CSVs into dblp.db (SQLite)
+    Phase 5:   Verify row counts and key invariants
+
+---
+            
+## Database Schema
+""")
+
+dot = """
+digraph ER {
+    rankdir=LR;
+
+    papers [shape=box];
+    authors [shape=box];
+    author_aliases [shape=box];
+    paper_authors [shape=box];
+
+    papers -> paper_authors;
+    authors -> paper_authors;
+    authors -> author_aliases;
+}
+"""
+
+dot = build_er_diagram()
+st.graphviz_chart(dot)
+
+st.markdown("""
+---
+## Dataset Summary after ETL
 
 | Metric | Value |
 |--------|------|
-| Total papers | 5927455 |
-| Articles | 3245977 |
-| Inproceedings | 2681478 |
-| Author identities | 4057541 |
-| Author mentions | 22534080 |
+| Total papers | 5 927 455 |
+| Articles | 3 245 977 |
+| Inproceedings | 2 681 478 |
+| Author identities | 4 057 541 |
+| Author aliases | 111 838 |
+| Paper authors | 22 533 652 |
 
----
-
-## Technologies Used
-
-This project follows a simple and modular ETL pipeline:
-
-**XML → CSV → SQL**
-
-Main components:
-
-- **Python** – core language for data processing  
-- **ElementTree (iterparse)** – streaming XML parsing  
-- **Pandas** – data transformation and CSV handling  
-- **SQLite** – relational storage and querying  
-- **Streamlit** – interactive dashboard  
-
-The pipeline is designed to handle large files efficiently by processing data in a streaming manner and using CSV as an intermediate layer.
-
----
-
-## Notes
-
-- Author names are normalized using simple rules (lowercasing, trimming, removing punctuation)  
-- No advanced entity resolution or ML-based matching was applied  
-- This reduces the risk of incorrect merges and keeps the pipeline deterministic  
-
----
-
-This project focuses on building a clean data pipeline and enabling reliable exploratory analysis.
 """)
