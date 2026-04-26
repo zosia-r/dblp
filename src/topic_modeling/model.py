@@ -60,6 +60,15 @@ def _build_model(embedding_model: SentenceTransformer) -> BERTopic:
     )
 
 
+def _build_vectorizer() -> CountVectorizer:
+    return CountVectorizer(
+        stop_words=CUSTOM_STOP_WORDS,
+        ngram_range=(1, 2),
+        min_df=5,
+        max_df=0.9,
+    )
+
+
 def _encode(
     docs: list[str],
     embedding_model: SentenceTransformer,
@@ -83,6 +92,10 @@ def _encode(
     return embeddings
 
 
+def _count_outliers(topics: list[int]) -> int:
+    return sum(1 for t in topics if t == -1)
+
+
 def train(
     docs: list[str],
     model_path: str,
@@ -104,31 +117,33 @@ def train(
 
     logger.info("Fitting BERTopic ...")
     topics, _ = topic_model.fit_transform(sample_docs, embeddings=embeddings)
-    logger.info(f"Initial topics: {len(set(topics)) - (1 if -1 in topics else 0)}, outliers: {topics.count(-1):,}")
+    logger.info(f"Initial topics: {len(set(topics)) - (1 if -1 in topics else 0)}, outliers: {_count_outliers(topics):,}")
 
-    logger.info("Reducing outliers ...")
-    vectorizer_model = CountVectorizer(
-        stop_words=CUSTOM_STOP_WORDS,
-        ngram_range=(1, 2),
-        min_df=5,
-        max_df=0.9,
-    )
-    new_topics = topic_model.reduce_outliers(
-        sample_docs,
-        topics,
+    # Strategy 1: embeddings-based outlier reduction
+    logger.info("Reducing outliers [strategy: embeddings, threshold=0.2] ...")
+    topics = topic_model.reduce_outliers(
+        sample_docs, topics,
         strategy="embeddings",
         embeddings=embeddings,
         threshold=0.2,
     )
-    topic_model.update_topics(sample_docs, topics=new_topics, vectorizer_model=vectorizer_model)
+    logger.info(f"Outliers after embeddings strategy: {_count_outliers(topics):,}")
 
-    outliers_after = sum(1 for t in new_topics if t == -1)
-    logger.info(f"After outlier reduction: {outliers_after:,} outliers remaining.")
+    # Strategy 2: c-tf-idf for remaining outliers
+    logger.info("Reducing outliers [strategy: c-tf-idf] ...")
+    topics = topic_model.reduce_outliers(
+        sample_docs, topics,
+        strategy="c-tf-idf",
+        threshold=0.1,
+    )
+    logger.info(f"Outliers after c-tf-idf strategy: {_count_outliers(topics):,}")
+
+    topic_model.update_topics(sample_docs, topics=topics, vectorizer_model=_build_vectorizer())
 
     topic_model.save(model_path)
     logger.info(f"Model saved to {model_path}.")
 
-    return topic_model, embedding_model, new_topics, idx
+    return topic_model, embedding_model, topics, idx
 
 
 def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
@@ -168,23 +183,55 @@ def transform_all(
     batch_size: int = 50_000,
 ) -> list[int]:
     """
-    Run transform() on all documents in batches.
-    Returns a list of topic ids (one per document, -1 for outliers).
+    Transform all documents in batches, reducing outliers per batch
+    using two sequential strategies: embeddings → c-tf-idf.
+    Returns a list of topic ids (-1 for unassigned outliers).
     """
     logger.info(f"Transforming {len(all_docs):,} documents in batches of {batch_size:,} ...")
     all_topics: list[int] = []
 
     for start in range(0, len(all_docs), batch_size):
         batch = all_docs[start : start + batch_size]
+
         batch_embeddings = embedding_model.encode(
             batch,
-            batch_size=512,
+            batch_size=1024,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
-        topics, _ = topic_model.transform(batch, embeddings=batch_embeddings)
-        all_topics.extend(topics)
-        logger.info(f"  Processed {min(start + batch_size, len(all_docs)):,} / {len(all_docs):,}")
 
-    logger.info("Transform complete.")
+        # Initial transform
+        topics, _ = topic_model.transform(batch, embeddings=batch_embeddings)
+        topics = list(topics)
+
+        # Strategy 1: embeddings
+        topics = topic_model.reduce_outliers(
+            batch, topics,
+            strategy="embeddings",
+            embeddings=batch_embeddings,
+            threshold=0.2,
+        )
+
+        # Strategy 2: c-tf-idf for remaining outliers
+        topics = topic_model.reduce_outliers(
+            batch, topics,
+            strategy="c-tf-idf",
+            threshold=0.1,
+        )
+
+        all_topics.extend(topics)
+
+        processed = min(start + batch_size, len(all_docs))
+        batch_outliers = _count_outliers(list(topics))
+        logger.info(
+            f"  Processed {processed:,} / {len(all_docs):,} "
+            f"| batch outliers: {batch_outliers} / {len(batch)} "
+            f"({batch_outliers / len(batch) * 100:.1f}%)"
+        )
+
+    total_outliers = _count_outliers(all_topics)
+    logger.info(
+        f"Transform complete. Total outliers: {total_outliers:,} / {len(all_docs):,} "
+        f"({total_outliers / len(all_docs) * 100:.1f}%)"
+    )
     return all_topics
