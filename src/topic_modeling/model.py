@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 import numpy as np
 from bertopic import BERTopic
@@ -8,35 +9,95 @@ from hdbscan import HDBSCAN
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer
 from umap import UMAP
+import torch
+
+try:
+    from cuml.cluster import HDBSCAN as CUHDBSCAN
+    from cuml.manifold import UMAP as CUUMAP
+
+    HAS_CUML = True
+    CUML_IMPORT_ERROR = None
+except Exception as exc:
+    CUHDBSCAN = None
+    CUUMAP = None
+    HAS_CUML = False
+    CUML_IMPORT_ERROR = str(exc)
 
 logger = logging.getLogger(__name__)
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_PATH = "data/processed/bertopic_model"
 
 from config import CUSTOM_STOP_WORDS, RANDOM_STATE, SAMPLE_SIZE
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 
+def _use_gpu_backend() -> bool:
+    return device == "cuda" and HAS_CUML
+
+
 def _build_embedding_model() -> SentenceTransformer:
-    return SentenceTransformer(EMBEDDING_MODEL_NAME)
+    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    model.to(device)
+    return model
 
 
-def _build_model(embedding_model: SentenceTransformer) -> BERTopic:
-    umap_model = UMAP(
+def _build_umap_model():
+    if _use_gpu_backend():
+        logger.info("Using cuML UMAP on CUDA.")
+        return CUUMAP(
+            n_neighbors=15,
+            n_components=5,
+            min_dist=0.0,
+            metric="cosine",
+            random_state=RANDOM_STATE,
+        )
+
+    if device == "cuda" and not HAS_CUML:
+        logger.warning(
+            "CUDA is available, but cuML backend is unavailable (%s). Falling back to sklearn UMAP on CPU.",
+            CUML_IMPORT_ERROR,
+        )
+    logger.info("Using sklearn UMAP on CPU.")
+    return UMAP(
         n_neighbors=15,
         n_components=5,
         min_dist=0.0,
         metric="cosine",
-        low_memory=True,
         random_state=RANDOM_STATE,
     )
 
-    hdbscan_model = HDBSCAN(
+
+def _build_hdbscan_model():
+    if _use_gpu_backend():
+        logger.info("Using cuML HDBSCAN on CUDA.")
+        return CUHDBSCAN(
+            min_cluster_size=300,
+            min_samples=5,
+            metric="euclidean",
+            cluster_selection_method="eom",
+            prediction_data=True,
+        )
+
+    if device == "cuda" and not HAS_CUML:
+        logger.warning(
+            "CUDA is available, but cuML backend is unavailable (%s). Falling back to hdbscan on CPU.",
+            CUML_IMPORT_ERROR,
+        )
+    logger.info("Using hdbscan on CPU.")
+    return HDBSCAN(
         min_cluster_size=300,
         min_samples=5,
         metric="euclidean",
         cluster_selection_method="eom",
         prediction_data=True,
     )
+
+
+def _build_model(embedding_model: SentenceTransformer) -> BERTopic:
+    umap_model = _build_umap_model()
+    hdbscan_model = _build_hdbscan_model()
 
     vectorizer_model = CountVectorizer(
         stop_words=CUSTOM_STOP_WORDS,
@@ -76,9 +137,19 @@ def _encode(
 ) -> np.ndarray:
     if os.path.exists(embeddings_path):
         logger.info(f"Loading embeddings from {embeddings_path} ...")
-        embeddings = np.load(embeddings_path)
-        logger.info(f"Embeddings loaded: {embeddings.shape}")
-        return embeddings
+        try:
+            embeddings = np.load(embeddings_path)
+            if len(embeddings) == len(docs):
+                logger.info(f"Embeddings loaded: {embeddings.shape}")
+                return embeddings
+
+            logger.warning(
+                "Cached embeddings size mismatch: got %s rows, expected %s. Recomputing.",
+                len(embeddings),
+                len(docs),
+            )
+        except Exception as exc:
+            logger.warning("Failed to load cached embeddings (%s). Recomputing.", exc)
 
     logger.info(f"Encoding {len(docs):,} documents (this may take ~10 min) ...")
     embeddings = embedding_model.encode(
@@ -86,6 +157,7 @@ def _encode(
         batch_size=512,
         normalize_embeddings=True,
         show_progress_bar=True,
+        device=device,
     )
     np.save(embeddings_path, embeddings)
     logger.info(f"Embeddings saved to {embeddings_path}.")
@@ -97,7 +169,7 @@ def _count_outliers(topics: list[int]) -> int:
 
 
 def train(
-    docs: list[str],
+    sample_docs: list[str],
     model_path: str,
     embeddings_path: str,
 ) -> tuple[BERTopic, SentenceTransformer, list[int], np.ndarray]:
@@ -105,45 +177,56 @@ def train(
     Train BERTopic on a sample of docs.
     Returns (topic_model, embedding_model, new_topics, sample_idx).
     """
-    rng = np.random.default_rng(RANDOM_STATE)
-    n = min(SAMPLE_SIZE, len(docs))
-    idx = rng.choice(len(docs), size=n, replace=False)
-    sample_docs = [docs[i] for i in idx]
-    logger.info(f"Training on {n:,} sampled documents.")
+    # rng = np.random.default_rng(RANDOM_STATE)
+    # n = min(SAMPLE_SIZE, len(docs))
+    # idx = rng.choice(len(docs), size=n, replace=False)
+    # sample_docs = [docs[i] for i in idx]
+    # logger.info(f"Training on {n:,} sampled documents.")
 
     embedding_model = _build_embedding_model()
     topic_model = _build_model(embedding_model)
     embeddings = _encode(sample_docs, embedding_model, embeddings_path)
 
     logger.info("Fitting BERTopic ...")
+    start = time.time()
     topics, _ = topic_model.fit_transform(sample_docs, embeddings=embeddings)
-    logger.info(f"Initial topics: {len(set(topics)) - (1 if -1 in topics else 0)}, outliers: {_count_outliers(topics):,}")
+    elapsed = time.time() - start
+    logger.info(f"BERTopic fit_transform completed in {elapsed:.1f}s. Initial topics: {len(set(topics)) - (1 if -1 in topics else 0)}, outliers: {_count_outliers(topics):,}")
 
     # Strategy 1: embeddings-based outlier reduction
     logger.info("Reducing outliers [strategy: embeddings, threshold=0.2] ...")
+    start = time.time()
     topics = topic_model.reduce_outliers(
         sample_docs, topics,
         strategy="embeddings",
         embeddings=embeddings,
         threshold=0.2,
     )
-    logger.info(f"Outliers after embeddings strategy: {_count_outliers(topics):,}")
+    elapsed = time.time() - start
+    logger.info(f"Embeddings strategy completed in {elapsed:.1f}s. Outliers after embeddings strategy: {_count_outliers(topics):,}")
 
     # Strategy 2: c-tf-idf for remaining outliers
     logger.info("Reducing outliers [strategy: c-tf-idf] ...")
+    start = time.time()
     topics = topic_model.reduce_outliers(
         sample_docs, topics,
         strategy="c-tf-idf",
         threshold=0.1,
     )
-    logger.info(f"Outliers after c-tf-idf strategy: {_count_outliers(topics):,}")
+    elapsed = time.time() - start
+    logger.info(f"c-tf-idf strategy completed in {elapsed:.1f}s. Outliers after c-tf-idf strategy: {_count_outliers(topics):,}")
 
+    start = time.time()
     topic_model.update_topics(sample_docs, topics=topics, vectorizer_model=_build_vectorizer())
+    elapsed = time.time() - start
+    logger.info(f"update_topics completed in {elapsed:.1f}s.")
 
+    start = time.time()
     topic_model.save(model_path)
-    logger.info(f"Model saved to {model_path}.")
+    elapsed = time.time() - start
+    logger.info(f"Model saved to {model_path} in {elapsed:.1f}s.")
 
-    return topic_model, embedding_model, topics, idx
+    return topic_model, embedding_model, topics
 
 
 def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
@@ -198,6 +281,7 @@ def transform_all(
             batch_size=1024,
             normalize_embeddings=True,
             show_progress_bar=False,
+            device=device,
         )
 
         # Initial transform
@@ -234,4 +318,5 @@ def transform_all(
         f"Transform complete. Total outliers: {total_outliers:,} / {len(all_docs):,} "
         f"({total_outliers / len(all_docs) * 100:.1f}%)"
     )
+
     return all_topics

@@ -28,10 +28,10 @@ def run_train_and_transform() -> None:
     # 1. Load data
     papers = db.load_papers(DB_PATH)
     paper_ids = [p["id"] for p in papers]
-    docs = [p["title"] for p in papers]
+    docs = db.load_sample_papers("sample_data/papers.parquet")
 
     # 2. Train on sample – returns plain SentenceTransformer alongside model
-    topic_model, embedding_model, sample_topics, sample_idx = m.train(
+    topic_model, embedding_model, sample_topics = m.train(
         docs,
         model_path=MODEL_PATH,
         embeddings_path=EMBEDDINGS_PATH,
@@ -63,7 +63,7 @@ def run_transform_only() -> None:
     # 1. Load data
     papers = db.load_papers(DB_PATH)
     paper_ids = [p["id"] for p in papers]
-    docs = [p["title"] for p in papers]
+    docs = db.load_sample_papers("sample_data/papers.parquet")
 
     # 2. Load model – returns (topic_model, plain SentenceTransformer)
     topic_model, embedding_model = m.load(MODEL_PATH)
