@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 from contextlib import contextmanager
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,11 @@ def get_connection(db_path: str):
     finally:
         conn.close()
 
+def load_sample_papers(path) -> list[dict]:
+    df = pd.read_parquet(path, columns=["id", "title"], engine="pyarrow")
+    df = df[df["title"].notnull()]
+    logger.info(f"Loaded {len(df):,} papers from sample.")
+    return df['title'].tolist()
 
 def load_papers(db_path: str) -> list[dict]:
     """Load all papers with non-null titles from the database."""
@@ -67,7 +73,7 @@ def save_topics(db_path: str, topic_labels: dict[int, str]) -> None:
 def save_paper_topics(db_path: str, paper_ids: list[str], topic_ids: list[int]) -> None:
     """Update topic_id for each paper. Sets NULL for outliers (topic_id == -1)."""
     rows = [
-        (tid if tid != -1 else None, pid)
+        (int(tid) if tid != -1 else None, pid)
         for pid, tid in zip(paper_ids, topic_ids)
     ]
     with get_connection(db_path) as conn:
