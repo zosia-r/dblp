@@ -29,11 +29,11 @@ RESULTS_DIR: Path = Path("results")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 STATS_JSON = RESULTS_DIR / "stats.json"
 
-PAPERS_CSV        = INTERIM_DIR / "papers.csv"
-AUTHORS_RAW_CSV   = INTERIM_DIR / "authors_raw.csv"
-AUTHORS_CSV       = INTERIM_DIR / "authors.csv"
-AUTHOR_ALIASES_CSV = INTERIM_DIR / "author_aliases.csv"
-PAPER_AUTHORS_CSV = INTERIM_DIR / "paper_authors.csv"
+PAPERS_CSV        = INTERIM_DIR / "papers2.csv"
+AUTHORS_RAW_CSV   = INTERIM_DIR / "authors_raw2.csv"
+AUTHORS_CSV       = INTERIM_DIR / "authors2.csv"
+AUTHOR_ALIASES_CSV = INTERIM_DIR / "author_aliases2.csv"
+PAPER_AUTHORS_CSV = INTERIM_DIR / "paper_authors2.csv"
 
 DB_PATH = PROCESSED_DIR / "dblp.db"
 

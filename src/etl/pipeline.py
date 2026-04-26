@@ -40,20 +40,20 @@ def run() -> None:
     if not xml_path.exists():
         raise FileNotFoundError(f"XML file not found: {xml_path}")
     
-    log.info("=== Phase 0: Get basic information about the dataset ===")
-    get_stats(xml_path)
+    # log.info("=== Phase 0: Get basic information about the dataset ===")
+    # get_stats(xml_path)
 
     log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
     write_raw_csvs(stream_records(xml_path))
 
-    log.info("=== Phase 3: Resolve authors ===")
-    resolve_authors()
+    # log.info("=== Phase 3: Resolve authors ===")
+    # resolve_authors()
 
-    log.info("=== Phase 4: Load into SQLite ===")
-    load_into_sqlite()
+    # log.info("=== Phase 4: Load into SQLite ===")
+    # load_into_sqlite()
 
-    log.info("=== Phase 5: Verify ===")
-    verify()
+    # log.info("=== Phase 5: Verify ===")
+    # verify()
 
     log.info("Pipeline complete.")
 
