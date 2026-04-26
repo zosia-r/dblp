@@ -44,8 +44,8 @@ def run() -> None:
     # log.info("=== Phase 0: Get basic information about the dataset ===")
     # get_stats(xml_path)
 
-    log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
-    write_raw_csvs(stream_records(xml_path))
+    # log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
+    # write_raw_csvs(stream_records(xml_path))
 
     log.info("=== Phase 3: Resolve authors ===")
     resolve_authors()
@@ -60,6 +60,10 @@ def run() -> None:
     sample_run("data/processed/dblp.db", 0.10, False, Path("sample_data"))
 
     log.info("Pipeline complete.")
+
+
+if __name__ == "__main__":
+    run()
 
 
 
