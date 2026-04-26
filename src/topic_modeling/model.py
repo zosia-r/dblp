@@ -1,13 +1,13 @@
 import logging
 import os
-import time
-
+from pathlib import Path
 import numpy as np
+import time
 from bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired
 from hdbscan import HDBSCAN
 from sentence_transformers import SentenceTransformer
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 import torch
 
@@ -26,21 +26,23 @@ except Exception as exc:
 logger = logging.getLogger(__name__)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.set_default_device(device)
+
 MODEL_PATH = "data/processed/bertopic_model"
 
-from config import CUSTOM_STOP_WORDS, RANDOM_STATE, SAMPLE_SIZE
+from config import CUSTOM_STOP_WORDS, RANDOM_STATE
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-
-
-def _use_gpu_backend() -> bool:
-    return device == "cuda" and HAS_CUML
 
 
 def _build_embedding_model() -> SentenceTransformer:
     model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     model.to(device)
     return model
+
+
+def _use_gpu_backend() -> bool:
+    return device == "cuda" and HAS_CUML
 
 
 def _build_umap_model():
@@ -168,6 +170,11 @@ def _count_outliers(topics: list[int]) -> int:
     return sum(1 for t in topics if t == -1)
 
 
+def _model_variants(model_path: str | Path) -> tuple[str, str, str]:
+    base = str(model_path)
+    return base, f"{base}_gpu", f"{base}_cpu"
+
+
 def train(
     sample_docs: list[str],
     model_path: str,
@@ -221,23 +228,75 @@ def train(
     elapsed = time.time() - start
     logger.info(f"update_topics completed in {elapsed:.1f}s.")
 
+    base_path, gpu_path, cpu_path = _model_variants(model_path)
+
+    # Always save a portable CPU-friendly artifact.
     start = time.time()
-    topic_model.save(model_path)
+    try:
+        topic_model.save(
+            cpu_path,
+            serialization="safetensors",
+            save_ctfidf=True,
+            save_embedding_model=EMBEDDING_MODEL_NAME,
+        )
+        logger.info(f"Portable CPU artifact saved to {cpu_path}.")
+    except TypeError:
+        # Fallback for older BERTopic versions.
+        topic_model.save(cpu_path)
+        logger.info(f"Portable CPU artifact fallback-saved to {cpu_path}.")
+
+    # Save a backend-specific artifact as well.
+    if _use_gpu_backend():
+        topic_model.save(gpu_path)
+        logger.info(f"GPU artifact saved to {gpu_path}.")
+    else:
+        topic_model.save(base_path)
+        logger.info(f"CPU artifact saved to {base_path}.")
+
     elapsed = time.time() - start
-    logger.info(f"Model saved to {model_path} in {elapsed:.1f}s.")
+    logger.info(f"Model artifacts saved in {elapsed:.1f}s.")
 
     return topic_model, embedding_model, topics
-
 
 def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
     """
     Load a saved BERTopic model.
     Returns (topic_model, embedding_model) – embedding_model is a plain
     SentenceTransformer, safe to call .encode() on directly.
+    Prefer GPU artifact when CUDA+cuML is available, otherwise fall back to CPU artifact.
     """
-    logger.info(f"Loading BERTopic model from {model_path} ...")
+    base_path, gpu_path, cpu_path = _model_variants(model_path)
     embedding_model = _build_embedding_model()
-    topic_model = BERTopic.load(model_path, embedding_model=embedding_model)
+
+    if _use_gpu_backend():
+        load_order = [gpu_path, base_path, cpu_path]
+    else:
+        load_order = [cpu_path, base_path, gpu_path]
+
+    last_error = None
+    topic_model = None
+    for candidate in load_order:
+        if not os.path.exists(candidate):
+            continue
+        try:
+            logger.info(f"Loading BERTopic model from {candidate} ...")
+            topic_model = BERTopic.load(candidate, embedding_model=embedding_model)
+            logger.info(f"Loaded BERTopic model from {candidate}.")
+            break
+        except Exception as exc:
+            last_error = exc
+            logger.warning(f"Failed loading {candidate}: {exc}")
+
+    if topic_model is None:
+        searched = ", ".join(load_order)
+        if last_error is not None:
+            raise RuntimeError(f"Could not load any BERTopic artifact from: {searched}") from last_error
+        raise FileNotFoundError(f"No BERTopic artifact found. Looked for: {searched}")
+
+    # Rebuild runtime models for current backend.
+    topic_model.umap_model = _build_umap_model()
+    topic_model.hdbscan_model = _build_hdbscan_model()
+
     logger.info("Model loaded.")
     return topic_model, embedding_model
 

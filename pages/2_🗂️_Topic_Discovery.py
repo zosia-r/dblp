@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
-
+from huggingface_hub import hf_hub_download
+import logging
 
 
 import sys
@@ -11,6 +12,21 @@ import os
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src" / "topic_modeling"))
 
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - [%(levelname)s] - %(message)s",
+    level=logging.DEBUG,
+)
+
+# Suppress transformers and numba logs
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("numba").setLevel(logging.ERROR)
+
+log = logging.getLogger("TopicDiscovery")
+
+API_KEY = os.getenv("HF_API_KEY")
+if API_KEY is None:
+    st.warning("Hugging Face API key not found. Please set the HF_API_KEY environment variable.")
+MODEL_REPO = os.getenv("HF_MODEL_REPO", "zofia/dblp-bertopic")
 
 from src.topic_modeling.config import MODEL_PATH
 from src.topic_modeling.model import load as load_model
@@ -31,6 +47,12 @@ st.set_page_config(page_title="Topic Discovery",
 
 @st.cache_resource
 def load():
+    log.debug(f"Checking if model file exists at {MODEL_PATH}...")
+    if not MODEL_PATH.exists():
+        log.info(f"Model file not found locally. Downloading from Hugging Face repo '{MODEL_REPO}'...")
+        hf_hub_download(MODEL_REPO, filename="bertopic_model", local_dir=str(MODEL_PATH.parent), token=API_KEY)
+
+    log.info("Loading BERTopic model...")
     topic_model, _ = load_model(MODEL_PATH)
     return topic_model
 
