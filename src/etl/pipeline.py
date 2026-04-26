@@ -22,6 +22,7 @@ from .loader import load_into_sqlite
 from .parser import stream_records, get_stats
 from .transform import write_raw_csvs
 from .verify import verify
+from .eda.sample_db import run as sample_run
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,14 +47,17 @@ def run() -> None:
     log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
     write_raw_csvs(stream_records(xml_path))
 
-    # log.info("=== Phase 3: Resolve authors ===")
-    # resolve_authors()
+    log.info("=== Phase 3: Resolve authors ===")
+    resolve_authors()
 
-    # log.info("=== Phase 4: Load into SQLite ===")
-    # load_into_sqlite()
+    log.info("=== Phase 4: Load into SQLite ===")
+    load_into_sqlite()
 
-    # log.info("=== Phase 5: Verify ===")
-    # verify()
+    log.info("=== Phase 5: Verify ===")
+    verify()
+
+    log.info("=== Phase 6: Sample for model training ===")
+    sample_run("data/processed/dblp.db", 0.10, False, Path("sample_data"))
 
     log.info("Pipeline complete.")
 
