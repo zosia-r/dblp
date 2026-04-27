@@ -280,12 +280,12 @@ def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
             continue
         try:
             logger.info(f"Loading BERTopic model from {candidate} ...")
-            topic_model = BERTopic.load(candidate, embedding_model=embedding_model, exc_info=True)
+            topic_model = BERTopic.load(candidate, embedding_model=embedding_model)
             logger.info(f"Loaded BERTopic model from {candidate}.")
             break
         except Exception as exc:
             last_error = exc
-            logger.warning(f"Failed loading {candidate}: {exc}")
+            logger.warning(f"Failed loading {candidate}: {exc}", exc_info=True)
 
     if topic_model is None:
         searched = ", ".join(load_order)
