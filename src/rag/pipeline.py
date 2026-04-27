@@ -2,7 +2,7 @@ from .retriever import Retriever
 from .generator import Generator
 
 
-class RAGPipeline:
+class RAG:
     def __init__(self):
         self.retriever = Retriever()
         self.generator = Generator()

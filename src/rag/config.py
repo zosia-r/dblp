@@ -14,5 +14,5 @@ EMBEDDING_MODEL = "all-mpnet-base-v2"
 
 # LLM
 USE_GEMINI = True
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 TOP_K = 5
