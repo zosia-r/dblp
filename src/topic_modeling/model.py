@@ -280,7 +280,7 @@ def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
             continue
         try:
             logger.info(f"Loading BERTopic model from {candidate} ...")
-            topic_model = BERTopic.load(candidate, embedding_model=embedding_model)
+            topic_model, _ = BERTopic.load(candidate, embedding_model=embedding_model)
             logger.info(f"Loaded BERTopic model from {candidate}.")
             break
         except Exception as exc:

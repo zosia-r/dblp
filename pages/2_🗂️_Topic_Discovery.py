@@ -24,7 +24,7 @@ logging.getLogger("numba").setLevel(logging.ERROR)
 log = logging.getLogger("TopicDiscovery")
 
 API_KEY = os.getenv("HF_API_KEY") or st.secrets.get("HF_API_KEY")
-MODEL_REPO = os.getenv("HF_MODEL_REPO") or st.secrets.get("HF_MODEL_REPO", "fxGRDN/bertopic-dblp-593k")
+MODEL_REPO = os.getenv("HF_MODEL_REPO") or st.secrets.get("HF_MODEL_REPO", None)
 
 if API_KEY is None:
     st.warning("Hugging Face API key not found. Set HF_API_KEY in environment or Streamlit secrets.")
@@ -73,7 +73,7 @@ def load():
             "Please ensure the repository contains a compatible model variant "
             "(preferably `bertopic_model_cpu` saved in the same BERTopic/numba environment)."
         )
-        st.caption(f"Model repo: {MODEL_REPO}")
+        # st.caption(f"Model repo: {MODEL_REPO}")
         st.exception(exc)
         return None
 
