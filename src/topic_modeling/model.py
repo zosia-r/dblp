@@ -170,9 +170,9 @@ def _count_outliers(topics: list[int]) -> int:
     return sum(1 for t in topics if t == -1)
 
 
-def _model_variants(model_path: str | Path) -> tuple[str, str, str]:
+def _model_variants(model_path: str | Path) -> tuple[str, str, str, str]:
     base = str(model_path)
-    return base, f"{base}_gpu", f"{base}_cpu"
+    return base, f"{base}_gpu", f"{base}_cpu", f"{base}_safe"
 
 
 def train(
@@ -265,13 +265,13 @@ def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
     SentenceTransformer, safe to call .encode() on directly.
     Prefer GPU artifact when CUDA+cuML is available, otherwise fall back to CPU artifact.
     """
-    base_path, gpu_path, cpu_path = _model_variants(model_path)
+    base_path, gpu_path, cpu_path, safe_path = _model_variants(model_path)
     embedding_model = _build_embedding_model()
 
     if _use_gpu_backend():
-        load_order = [gpu_path, base_path, cpu_path]
+        load_order = [safe_path, gpu_path, base_path, cpu_path]
     else:
-        load_order = [cpu_path, base_path, gpu_path]
+        load_order = [safe_path, cpu_path, base_path, gpu_path]
 
     last_error = None
     topic_model = None
@@ -282,6 +282,13 @@ def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
             logger.info(f"Loading BERTopic model from {candidate} ...")
             topic_model = BERTopic.load(candidate, embedding_model=embedding_model)
             logger.info(f"Loaded BERTopic model from {candidate}.")
+            topic_model.save(
+                candidate + '_safe',
+                serialization="safetensors",
+                save_ctfidf=True,
+                save_embedding_model=False
+            )
+            logger.info(f"Re-saved model in safetensors format at {candidate}.")
             break
         except Exception as exc:
             last_error = exc
@@ -379,3 +386,4 @@ def transform_all(
     )
 
     return all_topics
+

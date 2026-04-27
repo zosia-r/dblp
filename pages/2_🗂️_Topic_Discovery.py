@@ -48,10 +48,10 @@ st.set_page_config(page_title="Topic Discovery",
 
 @st.cache_resource
 def load():
-    model_variants = [Path(f"{MODEL_PATH}_cpu"), MODEL_PATH, Path(f"{MODEL_PATH}_gpu")]
+    model_variants = [Path(f"{MODEL_PATH}_cpu"), MODEL_PATH, Path(f"{MODEL_PATH}_gpu"), Path(f"{MODEL_PATH}_safe")]
     if not any(p.exists() for p in model_variants):
         log.info(f"No local model artifacts found. Downloading from Hugging Face repo '{MODEL_REPO}'...")
-        for fname in ["bertopic_model_cpu", "bertopic_model", "bertopic_model_gpu"]:
+        for fname in ["bertopic_model_cpu", "bertopic_model", "bertopic_model_gpu", "bertopic_model_safe"]:
             try:
                 hf_hub_download(
                     repo_id=MODEL_REPO,
