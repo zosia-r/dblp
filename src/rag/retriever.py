@@ -75,7 +75,7 @@ class Retriever:
         data = self.loader.load()
         docs = data["docs"]
         ids = data["ids"]
-        embeddings = np.asarray(data["embeddings"])
+        embeddings = data["embeddings"]
         expected_dim = int(embeddings.shape[1])
 
         self._ensure_embedding_model_dim(expected_dim)

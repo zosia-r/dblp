@@ -1,3 +1,5 @@
+import os
+
 MODEL_PATH = "data/models/bertopic_model"
 EMBEDDINGS_PATH = "data/models/embeddings.npy"
 
@@ -11,6 +13,8 @@ CHROMA_PATH = "data/chroma"
 COLLECTION_NAME = "papers"
 
 EMBEDDING_MODEL = "all-mpnet-base-v2"
+RAG_INDEX_FRACTION = float(os.getenv("RAG_INDEX_FRACTION", "0.5"))
+RAG_INDEX_SEED = int(os.getenv("RAG_INDEX_SEED", "42"))
 
 # LLM
 USE_GEMINI = True
