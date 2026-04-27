@@ -280,6 +280,14 @@ def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
             continue
         try:
             logger.info(f"Loading BERTopic model from {candidate} ...")
+            logger.info(f"Is dir: {os.path.isdir(candidate)}")
+            logger.info(f"Is file: {os.path.isfile(candidate)}")
+
+            if os.path.isdir(candidate):
+                for f in os.scandir(candidate):
+                    logger.info(f"  {f.name}: {f.stat().st_size:,} bytes")
+            else:
+                logger.info(f"  size: {os.path.getsize(candidate):,} bytes")
             topic_model = BERTopic.load(candidate, embedding_model=embedding_model)
             logger.info(f"Loaded BERTopic model from {candidate}.")
             break
