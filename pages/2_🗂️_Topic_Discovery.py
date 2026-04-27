@@ -3,12 +3,23 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
-from huggingface_hub import hf_hub_download
+from huggingface_hub import snapshot_download as hf_hub_download
 import logging
+import warnings
 
 
 import sys
 import os
+
+# Keep transformers output quiet in Streamlit logs.
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+warnings.filterwarnings(
+    "ignore",
+    message=r".*Accessing `__path__` from.*",
+    category=Warning,
+)
+
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src" / "topic_modeling"))
 
@@ -20,6 +31,8 @@ logging.basicConfig(
 # Suppress transformers and numba logs
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("numba").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
 
 log = logging.getLogger("TopicDiscovery")
 
@@ -48,31 +61,29 @@ st.set_page_config(page_title="Topic Discovery",
 
 @st.cache_resource
 def load():
-    model_variants = [Path(f"{MODEL_PATH}_cpu"), MODEL_PATH, Path(f"{MODEL_PATH}_gpu"), Path(f"{MODEL_PATH}_safe")]
-    if not any(p.exists() for p in model_variants):
+    fname = "bertopic_model_safe"
+    if not Path(f"{MODEL_PATH}_safe").exists():
         log.info(f"No local model artifacts found. Downloading from Hugging Face repo '{MODEL_REPO}'...")
-        for fname in ["bertopic_model_cpu", "bertopic_model", "bertopic_model_gpu", "bertopic_model_safe"]:
-            try:
-                hf_hub_download(
-                    repo_id=MODEL_REPO,
-                    filename=fname,
-                    local_dir=str(MODEL_PATH.parent),
-                    token=API_KEY,
-                    local_dir_use_symlinks=False,
-                )
-                log.info(f"Downloaded {fname}")
-            except Exception as exc:
-                log.debug(f"Skipped {fname}: {exc}")
+        try:
+            hf_hub_download(
+                repo_id=MODEL_REPO,
+                local_dir=str(MODEL_PATH.parent),
+                token=API_KEY,
+                local_dir_use_symlinks=False,
+                allow_patterns=f"{fname}/**",
+            )
+            log.info(f"Downloaded {fname}")
+        except Exception as exc:
+            log.debug(f"Skipped {fname}: {exc}")
 
     try:
         log.info("Loading BERTopic model...")
-        topic_model, _ = load_model(MODEL_PATH)
+        topic_model, _ = load_model(MODEL_PATH.parent / fname)
         return topic_model
     except Exception as exc:
         st.error(
             "Could not load BERTopic model artifacts. "
             "Please ensure the repository contains a compatible model variant "
-            "(preferably `bertopic_model_cpu` saved in the same BERTopic/numba environment)."
         )
         # st.caption(f"Model repo: {MODEL_REPO}")
         st.exception(exc)

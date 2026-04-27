@@ -265,40 +265,15 @@ def load(model_path: str) -> tuple[BERTopic, SentenceTransformer]:
     SentenceTransformer, safe to call .encode() on directly.
     Prefer GPU artifact when CUDA+cuML is available, otherwise fall back to CPU artifact.
     """
-    base_path, gpu_path, cpu_path, safe_path = _model_variants(model_path)
     embedding_model = _build_embedding_model()
 
-    if _use_gpu_backend():
-        load_order = [safe_path, gpu_path, base_path, cpu_path]
-    else:
-        load_order = [safe_path, cpu_path, base_path, gpu_path]
+    try:
+        logger.info(f"Loading BERTopic model from {model_path} ...")
+        topic_model = BERTopic.load(model_path, embedding_model=embedding_model)
+        logger.info(f"Loaded BERTopic model from {model_path}.")    
+    except Exception as exc:
+        logger.warning(f"Failed loading {model_path}: {exc}", exc_info=True)
 
-    last_error = None
-    topic_model = None
-    for candidate in load_order:
-        if not os.path.exists(candidate):
-            continue
-        try:
-            logger.info(f"Loading BERTopic model from {candidate} ...")
-            topic_model = BERTopic.load(candidate, embedding_model=embedding_model)
-            logger.info(f"Loaded BERTopic model from {candidate}.")
-            topic_model.save(
-                candidate + '_safe',
-                serialization="safetensors",
-                save_ctfidf=True,
-                save_embedding_model=False
-            )
-            logger.info(f"Re-saved model in safetensors format at {candidate}.")
-            break
-        except Exception as exc:
-            last_error = exc
-            logger.warning(f"Failed loading {candidate}: {exc}", exc_info=True)
-
-    if topic_model is None:
-        searched = ", ".join(load_order)
-        if last_error is not None:
-            raise RuntimeError(f"Could not load any BERTopic artifact from: {searched}") from last_error
-        raise FileNotFoundError(f"No BERTopic artifact found. Looked for: {searched}")
 
     # Rebuild runtime models for current backend.
     topic_model.umap_model = _build_umap_model()
