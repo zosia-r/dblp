@@ -58,6 +58,7 @@ def load():
                     filename=fname,
                     local_dir=str(MODEL_PATH.parent),
                     token=API_KEY,
+                    local_dir_use_symlinks=False,
                 )
                 log.info(f"Downloaded {fname}")
             except Exception as exc:
