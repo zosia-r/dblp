@@ -16,7 +16,7 @@ rag = load()
 if "history" not in st.session_state:
     st.session_state.history = []
 
-query = st.text_input("Zadaj pytanie o publikacje:")
+query = st.text_input("Ask a question about publications:")
 
 if query:
     answer, docs = rag.run(query)
@@ -26,6 +26,6 @@ for q, a, docs in reversed(st.session_state.history):
     st.markdown(f"### 🧑 {q}")
     st.markdown(f"**🤖 {a}**")
 
-    with st.expander("🔎 Źródła"):
+    with st.expander("🔎 Sources"):
         for d in docs:
             st.write("-", d)

@@ -1,59 +1,51 @@
 # dblp
 
-## STRATEGIA
-1. ETL - done
-2. TOPIC DISCOVERY
-    - TF-IDF na tytułach
-    - clustering: K-means albo BERTopic
-3. EDA
-    - liczba publikacji na rok
-    - top autorzy
-    - średnia liczba autorów na papier
-    - najczęstsze słowa w tytułach
-    - graf współautorstwa
-4. SYSTEM REKOMENDACJI
-    - podobieństwa między papierami (TF-IDF + cosine similarity)
-    - embeddings
-5. SEARCH / CHATBOT
-    - prosty interfejs do wyszukiwania publikacji
-    - proste zapytania o trendy (np. "jakie są najpopularniejsze tematy w 2020 roku?")
-5. DASHBOARD
-    - Streamlit
+DBLP analytics and exploration project with ETL, EDA, topic discovery, and RAG pipelines.
 
-16:42:43 [INFO] XML parse done 
-| total: 12_501_682 
-| article: 4_249_812 
-| inproceedings: 3_860_628 
-| proceedings: 63_924 
-| book: 21_374 
-| incollection: 71_063 
-| phdthesis: 152_212 
-| mastersthesis: 27 
-| www: 4_059_905 
-| person: 0 
-| data: 22_737
+## Dashboard
+The dashboard is built with Streamlit and provides an interactive interface for exploring the DBLP dataset, visualizing topics, and performing RAG-based question answering.
+It is deployed on Streamlit Cloud and can be accessed at: https://zosia-r-dblp--dblp-project-4qih6i.streamlit.app/
 
-## wybór danych
-- article - An article from a journal or magazine - 34% wszystkich rekordów
-- inproceedings - A paper in a conference or workshop proceedings - 31% wszystkich rekordów
-- phdthesis - A PhD thesis - 1% wszystkich rekordów
-- www - person records - 32% wszystkich rekordów
-    - allows to link papers to authors
-    - allows person disambiguation
+## Project structure
 
+```text
+├── 📚_DBLP_Project.py
+├── main.py
+├── pages/
+│   ├── 1_⚙️_ETL.py
+│   ├── 2_🗂️_Topic_Discovery.py
+│   ├── 3_📊_EDA.py
+│   └── 4_👽_RAG.py
+├── results/
+├── sample_data/
+└── src/
+    ├── eda/
+    ├── etl/
+    ├── hf/
+    ├── rag/
+    └── topic_modeling/
+```
 
+## What each part does
 
-## Dane do analizy
-1. Paper
-    - title
-    - year
-    - venue
-    - type
-    - authors
-        - name
-        - aliases
+- `main.py`: command-line interface for preparing data.
+- `📚_DBLP_Project.py`, `main.py`: dashboard entry points.
+- `pages/`: Streamlit multi-page UI (ETL, topic discovery, EDA, RAG).
+- `results/`: generated summary metrics and analysis outputs.
+- `sample_data/`: lightweight demo dataset.
+- `src/etl/`: extraction, parsing, transformation, validation pipeline.
+- `src/eda/`: exploratory analysis logic and topic-focused EDA helpers.
+- `src/topic_modeling/`: BERTopic configuration, training, persistence, stats.
+- `src/rag/`: retriever-generator pipeline and data loading for QA/search.
+- `src/hf/`: Hugging Face model/data load-upload utilities.
 
-## GPU / RAPIDS setup
+## Running the project
+To prepare the data, run:
+```bash
+uv run main.py <path_to_dblp_xml>
+```
+
+<!-- ## GPU / RAPIDS setup
 
 `uv add rapids` is not the same thing as installing the RAPIDS GPU stack for BERTopic.
 
@@ -68,4 +60,4 @@ mamba install -c rapidsai -c conda-forge -c nvidia \
     cuml-cuda12x cudf-cuda12x cupy-cuda12x -y
 ```
 
-Then run the project from that environment. If `cuml` is importable, the topic-modeling code will use GPU UMAP/HDBSCAN automatically; otherwise it falls back to the CPU implementation.
+Then run the project from that environment. If `cuml` is importable, the topic-modeling code will use GPU UMAP/HDBSCAN automatically; otherwise it falls back to the CPU implementation. -->

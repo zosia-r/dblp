@@ -22,7 +22,7 @@ from .loader import load_into_sqlite
 from .parser import stream_records, get_stats
 from .transform import write_raw_csvs
 from .verify import verify
-from .eda.sample_db import run as sample_run
+from ..eda.sample_db import run as sample_run
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,8 +44,8 @@ def run() -> None:
     # log.info("=== Phase 0: Get basic information about the dataset ===")
     # get_stats(xml_path)
 
-    # log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
-    # write_raw_csvs(stream_records(xml_path))
+    log.info("=== Phase 1+2: Parse XML + write raw CSVs ===")
+    write_raw_csvs(stream_records(xml_path))
 
     log.info("=== Phase 3: Resolve authors ===")
     resolve_authors()

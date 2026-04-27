@@ -101,7 +101,7 @@ def _print_summary(topic_labels: dict, all_topics: list[int]) -> None:
     logger.info(f"─── Outliers: {outliers:,} / {total:,} ({outliers/total*100:.1f}%) ──────────────────")
 
 
-if __name__ == "__main__":
+def run() -> None:
     parser = argparse.ArgumentParser(description="BERTopic pipeline for DBLP")
     parser.add_argument(
         "--transform",
@@ -111,6 +111,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.transform:
+        logger.info("Running in TRANSFORM-ONLY mode.")
         run_transform_only()
     else:
+        logger.info("Running in TRAIN-AND-TRANSFORM mode.")
         run_train_and_transform()
+
+if __name__ == "__main__":
+    run()
