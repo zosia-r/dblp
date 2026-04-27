@@ -30,36 +30,19 @@ from src.eda.eda_general import (
     yoy_growth_rate,
     top_venues_bar,
     top_conferences_vs_journals,
-    venue_heatmap,
     venue_bump_chart,
-    venue_treemap,
-    venue_sankey,
-    unique_venues_per_year,
     authors_per_paper_dist,
     authors_per_paper_by_type,
-    median_authors_per_year,
     top_authors_bar,
     author_productivity_dist,
     author_activity_span,
     new_authors_per_year,
-    author_retention_funnel,
-    author_scatter_papers_vs_years,
-    author_parallel_coordinates,
-    coauthorship_weight_dist,
-    top_authors_by_degree,
-    avg_collaborators_per_year,
     title_length_dist,
     density_heatmap_year_vs_authors,
-    sunburst_year_type_venue,
 )
 from src.eda.eda_topics import (
     load_topics,
-    table_topics_overview,
-    table_topic_type_breakdown,
     table_top_authors_per_topic,
-    topics_papers_bar,
-    topics_pie,
-    topics_treemap,
     topics_over_time_line,
     topics_share_over_time,
     topic_heatmap_year,
@@ -67,11 +50,9 @@ from src.eda.eda_topics import (
     topic_yoy_growth,
     emerging_topics,
     venue_topic_heatmap,
-    topic_venue_sunburst,
     top_authors_per_topic_bar,
     author_topic_diversity,
     author_specialisation_scatter,
-    topic_cooccurrence_heatmap,
     topic_type_stacked_bar,
     null_topic_over_time,
 )
@@ -250,20 +231,7 @@ elif section == "🗂️ Topics":
     null_pct = data.papers["topic_id"].isnull().mean() * 100
     c2.metric("Papers with topic", f"{100 - null_pct:.1f} %")
     c3.metric("Papers without topic", f"{null_pct:.1f} %")
-
-    c1, c2 = st.columns(2)
-    with c1:
-        chart(topics_papers_bar(data, topics))
-    with c2:
-        chart(topics_pie(data, topics))
-
-    chart(topics_treemap(data, topics))
-
-    st.subheader("Topics overview table")
-    st.dataframe(table_topics_overview(data, topics), use_container_width=True, hide_index=True)
-
-    st.subheader("Type breakdown per topic")
-    st.dataframe(table_topic_type_breakdown(data, topics), use_container_width=True, hide_index=True)
+    st.divider()
 
     # — trends ————————————————————————————————————————————————————————————————
     st.subheader("Topic trends over time")
@@ -274,12 +242,9 @@ elif section == "🗂️ Topics":
     chart(topic_heatmap_year(data, topics, top_n=top_n))
     chart(topic_bump_chart(data, topics, top_n=top_n))
 
-    c1, c2 = st.columns(2)
-    with c1:
-        chart(topic_yoy_growth(data, topics, top_n=min(top_n, 8)))
-    with c2:
-        window = st.slider("Emerging topics window (years)", 2, 5, 3)
-        chart(emerging_topics(data, topics, window=window))
+    chart(topic_yoy_growth(data, topics, top_n=min(top_n, 8)))
+    window = st.slider("Emerging topics window (years)", 2, 5, 3)
+    chart(emerging_topics(data, topics, window=window))
 
     chart(null_topic_over_time(data))
     chart(topic_type_stacked_bar(data, topics))
@@ -291,24 +256,19 @@ elif section == "🗂️ Topics":
         tv = st.slider("Top venues", 5, 20, 15, key="vt_venues")
         tt = st.slider("Top topics", 3, 15, 10, key="vt_topics")
     chart(venue_topic_heatmap(data, topics, top_venues=tv, top_topics=tt))
-    chart(topic_venue_sunburst(data, topics, top_topics=8, top_venues=5))
 
     # — authors × topics ————————————————————————————————————————————————————————
     st.subheader("Authors × Topics")
     chart(top_authors_per_topic_bar(
         data, topics,
-        top_n=st.slider("Top authors per topic", 3, 10, 5),
-        top_topics=st.slider("Top topics (authors chart)", 3, 12, 8),
+        top_n=st.slider("Top authors per topic", 3, 10, 3),
+        top_topics=st.slider("Top topics (authors chart)", 3, 12, 5),
     ))
     chart(author_topic_diversity(
         data, topics,
         min_papers=st.slider("Min papers per author", 2, 20, 5),
     ))
     chart(author_specialisation_scatter(data, topics))
-
-    st.subheader("Topic co-occurrence")
-    st.caption("Number of authors who published in both topics.")
-    chart(topic_cooccurrence_heatmap(data, topics))
 
     st.subheader("Top authors per topic — data table")
     n_top_t = st.slider("Top N authors per topic (table)", 3, 20, 10, key="top_auth_topic_tbl")

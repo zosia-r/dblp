@@ -15,6 +15,7 @@ from itertools import combinations
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -39,6 +40,30 @@ class DBData:
     paper_authors: pd.DataFrame
 
 
+def _decode_binary_int(value):
+    """Decode little-endian 8-byte binary integers to Python int."""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+
+    if isinstance(value, (bytes, bytearray)) and len(value) == 8:
+        return int.from_bytes(value, byteorder="little", signed=False)
+
+    if isinstance(value, np.void):
+        raw = bytes(value)
+        if len(raw) == 8:
+            return int.from_bytes(raw, byteorder="little", signed=False)
+
+    return value
+
+
+def _normalize_binary_int_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert binary-encoded integers in object columns to Python ints."""
+    obj_cols = df.select_dtypes(include=["object"]).columns
+    for col in obj_cols:
+        df[col] = df[col].map(_decode_binary_int)
+    return df
+
+
 def load_data(parquet_dir: Path) -> DBData:
     """Load all tables from Parquet files into a DBData container.
 
@@ -47,10 +72,11 @@ def load_data(parquet_dir: Path) -> DBData:
     """
     d = Path(parquet_dir)
     data = DBData()
-    data.papers = pd.read_parquet(d / "papers.parquet")
-    data.authors = pd.read_parquet(d / "authors.parquet")
-    data.aliases = pd.read_parquet(d / "author_aliases.parquet")
-    data.paper_authors = pd.read_parquet(d / "paper_authors.parquet")
+    data.papers = _normalize_binary_int_columns(pd.read_parquet(d / "papers.parquet"))
+    data.authors = _normalize_binary_int_columns(pd.read_parquet(d / "authors.parquet"))
+    data.aliases = _normalize_binary_int_columns(pd.read_parquet(d / "author_aliases.parquet"))
+    data.paper_authors = _normalize_binary_int_columns(pd.read_parquet(d / "paper_authors.parquet"))
+
     return data
 
 

@@ -21,6 +21,7 @@ Papers:
 
 Give a concise and accurate answer.
 """
+
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
