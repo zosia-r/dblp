@@ -23,9 +23,12 @@ if query:
     st.session_state.history.append((query, answer, docs))
 
 for q, a, docs in reversed(st.session_state.history):
-    st.markdown(f"### 🧑 {q}")
-    st.markdown(f"**🤖 {a}**")
+    st.markdown(f"### 👤 {q}")
+    st.markdown(f"**👽 {a}**")
 
     with st.expander("🔎 Sources"):
-        for d in docs:
-            st.write("-", d)
+        if not docs:
+            st.write("No relevant documents found.")
+        else:
+            for d in docs:
+                st.write("-", d)
