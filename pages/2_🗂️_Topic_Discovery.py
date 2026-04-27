@@ -23,10 +23,11 @@ logging.getLogger("numba").setLevel(logging.ERROR)
 
 log = logging.getLogger("TopicDiscovery")
 
-API_KEY = os.getenv("HF_API_KEY")
+API_KEY = os.getenv("HF_API_KEY") or st.secrets.get("HF_API_KEY")
+MODEL_REPO = os.getenv("HF_MODEL_REPO") or st.secrets.get("HF_MODEL_REPO", "fxGRDN/bertopic-dblp-593k")
+
 if API_KEY is None:
-    st.warning("Hugging Face API key not found. Please set the HF_API_KEY environment variable.")
-MODEL_REPO = os.getenv("HF_MODEL_REPO", "zofia/dblp-bertopic")
+    st.warning("Hugging Face API key not found. Set HF_API_KEY in environment or Streamlit secrets.")
 
 from src.topic_modeling.config import MODEL_PATH
 from src.topic_modeling.model import load as load_model
@@ -47,16 +48,38 @@ st.set_page_config(page_title="Topic Discovery",
 
 @st.cache_resource
 def load():
-    log.debug(f"Checking if model file exists at {MODEL_PATH}...")
-    if not MODEL_PATH.exists():
-        log.info(f"Model file not found locally. Downloading from Hugging Face repo '{MODEL_REPO}'...")
-        hf_hub_download(MODEL_REPO, filename="bertopic_model", local_dir=str(MODEL_PATH.parent), token=API_KEY)
+    model_variants = [Path(f"{MODEL_PATH}_cpu"), MODEL_PATH, Path(f"{MODEL_PATH}_gpu")]
+    if not any(p.exists() for p in model_variants):
+        log.info(f"No local model artifacts found. Downloading from Hugging Face repo '{MODEL_REPO}'...")
+        for fname in ["bertopic_model_cpu", "bertopic_model", "bertopic_model_gpu"]:
+            try:
+                hf_hub_download(
+                    repo_id=MODEL_REPO,
+                    filename=fname,
+                    local_dir=str(MODEL_PATH.parent),
+                    token=API_KEY,
+                )
+                log.info(f"Downloaded {fname}")
+            except Exception as exc:
+                log.debug(f"Skipped {fname}: {exc}")
 
-    log.info("Loading BERTopic model...")
-    topic_model, _ = load_model(MODEL_PATH)
-    return topic_model
+    try:
+        log.info("Loading BERTopic model...")
+        topic_model, _ = load_model(MODEL_PATH)
+        return topic_model
+    except Exception as exc:
+        st.error(
+            "Could not load BERTopic model artifacts. "
+            "Please ensure the repository contains a compatible model variant "
+            "(preferably `bertopic_model_cpu` saved in the same BERTopic/numba environment)."
+        )
+        st.caption(f"Model repo: {MODEL_REPO}")
+        st.exception(exc)
+        return None
 
 topic_model = load()
+if topic_model is None:
+    st.stop()
 
 # ── Page header ───────────────────────────────────────────────────────────────
 
